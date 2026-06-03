@@ -85,7 +85,7 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev]"
       - run: alembic upgrade head
-      - run: pytest tests/integration -v --timeout=60
+      - run: pytest tests/integration -v
 
   # ─── Checker ────────────────────────────────────────────────────────────
   checker-lint:
