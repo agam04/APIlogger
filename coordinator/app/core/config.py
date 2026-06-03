@@ -12,6 +12,14 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://apilogger:apilogger@localhost:5432/apilogger"
 
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def fix_db_scheme(cls, v: str) -> str:
+        # Railway provides postgresql://, SQLAlchemy asyncpg needs postgresql+asyncpg://
+        if v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
+
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
