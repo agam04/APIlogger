@@ -1,6 +1,7 @@
 """Test that the idempotency key construction is stable and unique."""
-import sys
+
 import os
+import sys
 
 # Add checker to path so we can import its reporter
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../../checker"))

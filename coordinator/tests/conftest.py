@@ -1,11 +1,13 @@
 """Shared test fixtures."""
-import os
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-from app.db.models import Base
+import os
+
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
 from app.db.base import get_db
+from app.db.models import Base
 from app.main import create_app
 
 TEST_DB_URL = os.getenv(

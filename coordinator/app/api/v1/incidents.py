@@ -1,4 +1,6 @@
 """Incident list, detail, and AI summary trigger."""
+
+import contextlib
 import uuid
 from typing import Annotated
 
@@ -47,10 +49,8 @@ class PaginatedIncidents(BaseModel):
 def _inc_to_response(inc: Incident) -> IncidentResponse:
     structured = None
     if inc.ai_structured:
-        try:
+        with contextlib.suppress(Exception):
             structured = AIStructured(**inc.ai_structured)
-        except Exception:
-            pass
 
     return IncidentResponse(
         id=str(inc.id),
@@ -77,20 +77,14 @@ async def list_incidents(
     # Join to services to enforce user ownership
     svc_ids_q = select(Service.id).where(Service.user_id == user.id)
 
-    q = (
-        select(Incident)
-        .options(selectinload(Incident.service))
-        .where(Incident.service_id.in_(svc_ids_q))
-    )
+    q = select(Incident).options(selectinload(Incident.service)).where(Incident.service_id.in_(svc_ids_q))
     if open_only:
         q = q.where(Incident.resolved_at.is_(None))
 
     total_r = await db.execute(select(func.count()).select_from(q.subquery()))
     total = total_r.scalar_one()
 
-    results_r = await db.execute(
-        q.order_by(Incident.started_at.desc()).offset((page - 1) * page_size).limit(page_size)
-    )
+    results_r = await db.execute(q.order_by(Incident.started_at.desc()).offset((page - 1) * page_size).limit(page_size))
     items = results_r.scalars().all()
     return PaginatedIncidents(
         items=[_inc_to_response(i) for i in items],
@@ -125,11 +119,7 @@ async def trigger_ai_summary(
     from app.incidents.ai_summary import generate_and_store_summary
 
     svc_ids_q = select(Service.id).where(Service.user_id == user.id)
-    result = await db.execute(
-        select(Incident).where(
-            Incident.id == incident_id, Incident.service_id.in_(svc_ids_q)
-        )
-    )
+    result = await db.execute(select(Incident).where(Incident.id == incident_id, Incident.service_id.in_(svc_ids_q)))
     inc = result.scalar_one_or_none()
     if inc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found")

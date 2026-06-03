@@ -1,6 +1,5 @@
 """Unit tests for quorum detector logic (pure functions)."""
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+
 from datetime import UTC, datetime, timedelta
 
 

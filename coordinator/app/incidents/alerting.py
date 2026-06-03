@@ -1,11 +1,11 @@
 """Email + Slack/Discord webhook alerting on incident open/resolve."""
+
 import uuid
-from datetime import UTC, datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 import aiosmtplib
 import httpx
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -45,6 +45,7 @@ async def send_incident_alert(incident_id: str, event: str) -> None:
         await db.commit()
 
     from app.api.v1.health import metrics
+
     metrics.alerts_sent += 1
 
 

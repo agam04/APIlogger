@@ -16,12 +16,14 @@ Output schema stored in incidents.ai_structured (JSONB):
     "similar_past_incident": str | null
   }
 """
+
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 import anthropic
+from anthropic.types import TextBlock
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -35,9 +37,9 @@ log = get_logger(__name__)
 
 # ── Provider abstraction ──────────────────────────────────────────────────────
 
+
 class LLMProvider(Protocol):
-    async def complete(self, system: str, user: str, max_tokens: int) -> str:
-        ...
+    async def complete(self, system: str, user: str, max_tokens: int) -> str: ...
 
 
 class AnthropicProvider:
@@ -51,12 +53,14 @@ class AnthropicProvider:
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        return response.content[0].text
+        block = next(b for b in response.content if isinstance(b, TextBlock))
+        return block.text
 
 
 class GroqProvider:
     def __init__(self) -> None:
         from groq import AsyncGroq
+
         self._client = AsyncGroq(api_key=settings.GROQ_API_KEY)
 
     async def complete(self, system: str, user: str, max_tokens: int) -> str:
@@ -68,7 +72,7 @@ class GroqProvider:
                 {"role": "user", "content": user},
             ],
         )
-        return response.choices[0].message.content
+        return response.choices[0].message.content or ""
 
 
 _provider: LLMProvider | None = None
@@ -102,7 +106,8 @@ def active_provider_name() -> str:
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are an expert SRE analyzing an API monitoring incident. Based on the check results and context provided, produce a structured diagnosis.
+You are an expert SRE analyzing an API monitoring incident.
+Based on the check results and context provided, produce a structured diagnosis.
 
 Respond with ONLY valid JSON matching this exact schema — no markdown, no explanation outside the JSON:
 
@@ -137,11 +142,7 @@ async def generate_and_store_summary(incident_id: str) -> None:
     iid = uuid.UUID(incident_id)
 
     async with AsyncSessionLocal() as db:
-        inc_r = await db.execute(
-            select(Incident)
-            .options(selectinload(Incident.service))
-            .where(Incident.id == iid)
-        )
+        inc_r = await db.execute(select(Incident).options(selectinload(Incident.service)).where(Incident.id == iid))
         incident = inc_r.scalar_one_or_none()
         if incident is None:
             log.warning("ai_summary_incident_not_found", incident_id=incident_id)
@@ -156,7 +157,7 @@ async def generate_and_store_summary(incident_id: str) -> None:
             .order_by(CheckResult.checked_at.desc())
             .limit(50)
         )
-        recent_checks = recent_r.scalars().all()
+        recent_checks = list(recent_r.scalars().all())
 
         past_r = await db.execute(
             select(Incident)
@@ -169,7 +170,7 @@ async def generate_and_store_summary(incident_id: str) -> None:
             .order_by(Incident.started_at.desc())
             .limit(3)
         )
-        past_incidents = past_r.scalars().all()
+        past_incidents = list(past_r.scalars().all())
 
     prompt = _build_prompt(incident, service, recent_checks, past_incidents)
 
@@ -195,6 +196,7 @@ async def generate_and_store_summary(incident_id: str) -> None:
         await db.commit()
 
     from app.api.v1.health import metrics
+
     metrics.ai_summaries_generated += 1
     log.info("ai_summary_generated", incident_id=incident_id, risk_level=structured.get("risk_level"))
 
@@ -212,8 +214,14 @@ def _parse_response(raw: str, incident_id: str) -> tuple[dict, str]:
         data = json.loads(raw)
     except json.JSONDecodeError:
         log.warning("ai_response_not_json", incident_id=incident_id, raw=raw[:200])
-        data = {"root_cause": raw, "confidence": 0.5, "risk_level": "Unknown",
-                "recommended_actions": [], "estimated_impact": "", "similar_past_incident": None}
+        data = {
+            "root_cause": raw,
+            "confidence": 0.5,
+            "risk_level": "Unknown",
+            "recommended_actions": [],
+            "estimated_impact": "",
+            "similar_past_incident": None,
+        }
 
     # Build a readable text version for display / alerts
     actions = "\n".join(f"  • {a}" for a in data.get("recommended_actions", []))

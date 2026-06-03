@@ -57,7 +57,7 @@ async def test_probe_custom_headers():
 @pytest.mark.asyncio
 @respx.mock
 async def test_probe_post_with_body():
-    route = respx.post("https://api.example.com/submit").mock(return_value=httpx.Response(201))
+    respx.post("https://api.example.com/submit").mock(return_value=httpx.Response(201))
     result = await probe("https://api.example.com/submit", "POST", 5000, 201, {}, '{"key": "value"}')
     assert result.status == "up"
     assert result.status_code == 201

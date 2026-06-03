@@ -1,4 +1,5 @@
 """Read-only endpoints for check result history with pagination."""
+
 import uuid
 from datetime import datetime
 from typing import Annotated
@@ -41,9 +42,7 @@ class LatencyStats(BaseModel):
 
 
 async def _assert_service_owned(db: DBSession, service_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    result = await db.execute(
-        select(Service.id).where(Service.id == service_id, Service.user_id == user_id)
-    )
+    result = await db.execute(select(Service.id).where(Service.id == service_id, Service.user_id == user_id))
     if result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
 
@@ -73,9 +72,7 @@ async def list_checks(
     total = total_r.scalar_one()
 
     results_r = await db.execute(
-        q.order_by(CheckResult.checked_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
+        q.order_by(CheckResult.checked_at.desc()).offset((page - 1) * page_size).limit(page_size)
     )
     items = results_r.scalars().all()
 
@@ -130,13 +127,9 @@ async def get_stats(
     row = stats_r.one()
 
     # uptime = fraction of checks with status 'up'
-    total_q = await db.execute(
-        select(func.count(CheckResult.id)).where(CheckResult.service_id == service_id)
-    )
+    total_q = await db.execute(select(func.count(CheckResult.id)).where(CheckResult.service_id == service_id))
     up_q = await db.execute(
-        select(func.count(CheckResult.id)).where(
-            CheckResult.service_id == service_id, CheckResult.status == "up"
-        )
+        select(func.count(CheckResult.id)).where(CheckResult.service_id == service_id, CheckResult.status == "up")
     )
     total_all = total_q.scalar_one()
     total_up = up_q.scalar_one()

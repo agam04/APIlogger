@@ -5,11 +5,10 @@ For each active service, we create a dedicated IntervalTrigger job that
 publishes a CheckTask to the Redis Stream.  Jobs are re-synced from the DB
 every minute so newly added / deleted services are picked up without restart.
 """
-import asyncio
+
 import math
 import random
 import time
-from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -43,9 +42,16 @@ def _make_round(service_id: str, interval_secs: int) -> int:
     return math.floor(time.time() / interval_secs)
 
 
-async def _enqueue_check(service_id: str, url: str, method: str, timeout_ms: int,
-                          expected_status: int, headers: dict, body: str | None,
-                          interval_secs: int) -> None:
+async def _enqueue_check(
+    service_id: str,
+    url: str,
+    method: str,
+    timeout_ms: int,
+    expected_status: int,
+    headers: dict,
+    body: str | None,
+    interval_secs: int,
+) -> None:
     if _redis is None:
         return
     round_num = _make_round(service_id, interval_secs)
@@ -74,8 +80,7 @@ async def _sync_jobs() -> None:
         services = result.scalars().all()
 
     active_ids = {str(s.id) for s in services}
-    existing_ids = {job.id.removeprefix("check:") for job in scheduler.get_jobs()
-                    if job.id.startswith("check:")}
+    existing_ids = {job.id.removeprefix("check:") for job in scheduler.get_jobs() if job.id.startswith("check:")}
 
     # Remove stale jobs
     for stale_id in existing_ids - active_ids:

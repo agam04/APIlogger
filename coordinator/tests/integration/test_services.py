@@ -1,4 +1,5 @@
 """Integration tests for service CRUD."""
+
 import pytest
 from httpx import AsyncClient
 
@@ -36,9 +37,14 @@ async def test_create_and_get_service(client: AsyncClient):
 async def test_list_services_paginated(client: AsyncClient):
     headers = await _auth_headers(client, "svc2@test.com")
     for i in range(5):
-        await client.post("/api/v1/services", json={
-            "name": f"Service {i}", "url": f"https://example{i}.com",
-        }, headers=headers)
+        await client.post(
+            "/api/v1/services",
+            json={
+                "name": f"Service {i}",
+                "url": f"https://example{i}.com",
+            },
+            headers=headers,
+        )
 
     resp = await client.get("/api/v1/services?page=1&page_size=3", headers=headers)
     assert resp.status_code == 200
@@ -53,7 +59,9 @@ async def test_service_isolation_between_users(client: AsyncClient):
     h1 = await _auth_headers(client, "user1@test.com")
     h2 = await _auth_headers(client, "user2@test.com")
 
-    resp = await client.post("/api/v1/services", json={"name": "User1 API", "url": "https://user1.example.com"}, headers=h1)
+    resp = await client.post(
+        "/api/v1/services", json={"name": "User1 API", "url": "https://user1.example.com"}, headers=h1
+    )  # noqa: E501
     svc_id = resp.json()["id"]
 
     # User2 cannot access User1's service
@@ -64,10 +72,12 @@ async def test_service_isolation_between_users(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_update_service(client: AsyncClient):
     headers = await _auth_headers(client, "upd@test.com")
-    resp = await client.post("/api/v1/services", json={"name": "Before", "url": "https://before.com"}, headers=headers)
+    resp = await client.post("/api/v1/services", json={"name": "Before", "url": "https://before.com"}, headers=headers)  # noqa: E501
     svc_id = resp.json()["id"]
 
-    resp2 = await client.patch(f"/api/v1/services/{svc_id}", json={"name": "After", "interval_secs": 120}, headers=headers)
+    resp2 = await client.patch(
+        f"/api/v1/services/{svc_id}", json={"name": "After", "interval_secs": 120}, headers=headers
+    )  # noqa: E501
     assert resp2.status_code == 200
     assert resp2.json()["name"] == "After"
     assert resp2.json()["interval_secs"] == 120
@@ -76,7 +86,9 @@ async def test_update_service(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_delete_service(client: AsyncClient):
     headers = await _auth_headers(client, "del@test.com")
-    resp = await client.post("/api/v1/services", json={"name": "ToDelete", "url": "https://delete.com"}, headers=headers)
+    resp = await client.post(
+        "/api/v1/services", json={"name": "ToDelete", "url": "https://delete.com"}, headers=headers
+    )  # noqa: E501
     svc_id = resp.json()["id"]
 
     del_resp = await client.delete(f"/api/v1/services/{svc_id}", headers=headers)
@@ -89,7 +101,7 @@ async def test_delete_service(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_invalid_interval_rejected(client: AsyncClient):
     headers = await _auth_headers(client, "inv@test.com")
-    resp = await client.post("/api/v1/services", json={
-        "name": "Bad", "url": "https://bad.com", "interval_secs": 5
-    }, headers=headers)
+    resp = await client.post(
+        "/api/v1/services", json={"name": "Bad", "url": "https://bad.com", "interval_secs": 5}, headers=headers
+    )
     assert resp.status_code == 422  # Pydantic validation error

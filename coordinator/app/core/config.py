@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     #   2. Groq (free tier) if GROQ_API_KEY is set
     #   3. Disabled otherwise
     ANTHROPIC_API_KEY: str = ""
-    AI_MODEL: str = "claude-sonnet-4-6"          # used when Anthropic is active
+    AI_MODEL: str = "claude-sonnet-4-6"  # used when Anthropic is active
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"  # fast, free-tier Groq model
     AI_ENABLED: bool = True

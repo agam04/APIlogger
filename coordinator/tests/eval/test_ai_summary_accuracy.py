@@ -11,10 +11,11 @@ Evaluation criteria (each scored 0-1):
 Run with: pytest tests/eval/ -v -s --no-header
 Requires ANTHROPIC_API_KEY to be set; otherwise skips.
 """
+
 import os
-import asyncio
-import pytest
 from dataclasses import dataclass
+
+import pytest
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 SKIP_REASON = "ANTHROPIC_API_KEY not set"
@@ -81,9 +82,14 @@ def _score_summary(summary: str, case: EvalCase) -> dict[str, float]:
     mentions_cause = 1.0 if cause_hit else 0.0
 
     # 2. Has recommended action
-    has_action = 1.0 if any(marker in summary_lower for marker in [
-        "recommend", "check", "investigate", "review", "restart", "monitor", "contact", "escalate"
-    ]) else 0.0
+    has_action = (
+        1.0
+        if any(
+            marker in summary_lower
+            for marker in ["recommend", "check", "investigate", "review", "restart", "monitor", "contact", "escalate"]
+        )
+        else 0.0
+    )
 
     # 3. Risk level accuracy (within one level)
     found_risk = "unknown"
@@ -96,7 +102,9 @@ def _score_summary(summary: str, case: EvalCase) -> dict[str, float]:
     risk_score = 1.0 if abs(expected_idx - found_idx) <= 1 else 0.0
 
     # 4. No hallucination markers (references to services not in the prompt)
-    hallucination_markers = ["database", "redis", "postgres", "kafka"] if "database" not in case.recent_checks_text.lower() else []
+    hallucination_markers = (
+        ["database", "redis", "postgres", "kafka"] if "database" not in case.recent_checks_text.lower() else []
+    )  # noqa: E501
     no_hallucination = 0.0 if any(m in summary_lower for m in hallucination_markers) else 1.0
 
     overall = (mentions_cause + has_action + risk_score + no_hallucination) / 4.0
@@ -112,6 +120,7 @@ def _score_summary(summary: str, case: EvalCase) -> dict[str, float]:
 
 async def _generate_summary(case: EvalCase) -> str:
     import anthropic
+
     from app.incidents.ai_summary import SYSTEM_PROMPT
 
     client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
@@ -139,15 +148,14 @@ async def test_ai_summary_quality(case: EvalCase):
     summary = await _generate_summary(case)
     scores = _score_summary(summary, case)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Case: {case.name}")
     print(f"Summary:\n{summary}")
     print(f"\nScores: {scores}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     assert scores["overall"] >= 0.75, (
-        f"AI summary quality too low ({scores['overall']:.2f} < 0.75). "
-        f"Scores: {scores}\n\nSummary:\n{summary}"
+        f"AI summary quality too low ({scores['overall']:.2f} < 0.75). Scores: {scores}\n\nSummary:\n{summary}"
     )
 
 

@@ -10,15 +10,12 @@ Simulates a checker node dying mid-batch by:
 
 This is an integration test that requires Redis to be running.
 """
-import asyncio
-import json
+
 import os
+
 import pytest
 import pytest_asyncio
-from datetime import UTC, datetime
-
 import redis.asyncio as aioredis
-
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 TEST_STREAM = "apilogger:node-death-test"
@@ -71,9 +68,7 @@ async def test_node_death_recovery(redis_client: aioredis.Redis):
     assert dead_node_messages, "Should have received the task"
 
     # Verify the task is in dead-node-1's pending list
-    pending = await redis_client.xpending_range(
-        TEST_STREAM, TEST_GROUP, min="-", max="+", count=10
-    )
+    pending = await redis_client.xpending_range(TEST_STREAM, TEST_GROUP, min="-", max="+", count=10)
     assert len(pending) == 1
     assert pending[0]["consumer"] == "dead-node-1"
 
@@ -94,16 +89,12 @@ async def test_node_death_recovery(redis_client: aioredis.Redis):
     assert len(reclaimed) == 1, f"Should have reclaimed 1 task, got {len(reclaimed)}"
 
     # Confirm the message is now owned by alive-node-2
-    pending2 = await redis_client.xpending_range(
-        TEST_STREAM, TEST_GROUP, min="-", max="+", count=10
-    )
+    pending2 = await redis_client.xpending_range(TEST_STREAM, TEST_GROUP, min="-", max="+", count=10)
     assert pending2[0]["consumer"] == "alive-node-2"
 
     # ACK it to clean up
     await redis_client.xack(TEST_STREAM, TEST_GROUP, entry_id)
 
     # Verify pending is now empty
-    pending3 = await redis_client.xpending_range(
-        TEST_STREAM, TEST_GROUP, min="-", max="+", count=10
-    )
+    pending3 = await redis_client.xpending_range(TEST_STREAM, TEST_GROUP, min="-", max="+", count=10)
     assert len(pending3) == 0

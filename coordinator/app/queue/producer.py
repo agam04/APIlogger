@@ -1,4 +1,5 @@
 """Publish check-task messages to the Redis Stream consumed by checker nodes."""
+
 import json
 from dataclasses import asdict, dataclass
 
@@ -27,9 +28,9 @@ class CheckTask:
 async def publish_check_task(redis: aioredis.Redis, task: CheckTask) -> str:
     """XADD to the tasks stream. Returns the Redis stream entry ID."""
     payload = {k: json.dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in asdict(task).items()}
-    entry_id = await redis.xadd(settings.TASKS_STREAM, payload, maxlen=50_000, approximate=True)
+    entry_id = await redis.xadd(settings.TASKS_STREAM, payload, maxlen=50_000, approximate=True)  # type: ignore[arg-type]
     log.debug("published_check_task", service_id=task.service_id, entry_id=entry_id)
-    return entry_id
+    return entry_id  # type: ignore[return-value]
 
 
 async def ensure_consumer_groups(redis: aioredis.Redis) -> None:

@@ -1,4 +1,5 @@
 """Auth endpoints: register + login."""
+
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
@@ -42,7 +43,7 @@ async def register(body: RegisterRequest, db: DBSession) -> UserResponse:
     try:
         await db.flush()
     except IntegrityError:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered") from None
     return UserResponse(id=str(user.id), email=user.email)
 
 

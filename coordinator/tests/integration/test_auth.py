@@ -1,4 +1,5 @@
 """Integration tests for auth endpoints."""
+
 import pytest
 from httpx import AsyncClient
 
@@ -6,20 +7,26 @@ from httpx import AsyncClient
 @pytest.mark.asyncio
 async def test_register_and_login(client: AsyncClient):
     # Register
-    resp = await client.post("/api/v1/auth/register", json={
-        "email": "test@example.com",
-        "password": "password123",
-    })
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "test@example.com",
+            "password": "password123",
+        },
+    )
     assert resp.status_code == 201
     data = resp.json()
     assert data["email"] == "test@example.com"
     assert "id" in data
 
     # Login
-    resp = await client.post("/api/v1/auth/login", json={
-        "email": "test@example.com",
-        "password": "password123",
-    })
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "test@example.com",
+            "password": "password123",
+        },
+    )
     assert resp.status_code == 200
     token_data = resp.json()
     assert "access_token" in token_data

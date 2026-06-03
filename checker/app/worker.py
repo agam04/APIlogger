@@ -13,7 +13,6 @@ Fault tolerance:
 import asyncio
 import json
 import signal
-import sys
 
 import redis.asyncio as aioredis
 import structlog

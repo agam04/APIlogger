@@ -1,4 +1,5 @@
 """Unit tests for security utilities."""
+
 import pytest
 from jose import JWTError
 

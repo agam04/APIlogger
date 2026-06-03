@@ -5,16 +5,17 @@ Revises:
 Create Date: 2024-01-01 00:00:00.000000
 
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0001"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -97,9 +98,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("idx_incidents_service", "incidents", ["service_id", "started_at"])
-    op.execute(
-        "CREATE INDEX idx_incidents_open ON incidents (service_id) WHERE resolved_at IS NULL"
-    )
+    op.execute("CREATE INDEX idx_incidents_open ON incidents (service_id) WHERE resolved_at IS NULL")
 
     op.create_table(
         "incident_context",

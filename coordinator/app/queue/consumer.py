@@ -5,9 +5,10 @@ Reads CheckResult messages from the Redis results stream, writes them
 to Postgres (idempotent via unique constraint on idempotency_key), then
 feeds the incident detector.
 """
+
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 
 import redis.asyncio as aioredis
 from sqlalchemy.exc import IntegrityError
@@ -41,9 +42,9 @@ async def run_result_consumer(redis: aioredis.Redis) -> None:
             if not messages:
                 continue
 
-            for _stream, entries in messages:
-                for entry_id, data in entries:
-                    await _handle_result(redis, entry_id, data)
+            for _stream, entries in messages:  # type: ignore[str-unpack]
+                for entry_id, data in entries:  # type: ignore[str-unpack,union-attr]
+                    await _handle_result(redis, entry_id, data)  # type: ignore[arg-type]
 
         except asyncio.CancelledError:
             log.info("result_consumer_stopping")
@@ -102,6 +103,7 @@ async def _handle_result(redis: aioredis.Redis, entry_id: str, raw: dict) -> Non
 
     # Increment internal metric
     from app.api.v1.health import metrics
+
     metrics.checks_ingested += 1
 
     await redis.xack(settings.RESULTS_STREAM, settings.RESULTS_GROUP, entry_id)

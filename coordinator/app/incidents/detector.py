@@ -12,17 +12,18 @@ Algorithm:
 By counting across checker nodes instead of trusting a single node, we
 eliminate false alerts from individual node network blips.
 """
+
 import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
-from sqlalchemy import func
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.base import AsyncSessionLocal
-from app.db.models import CheckResult, Incident, Service, ServiceStatus
+from app.db.models import CheckResult, Incident, ServiceStatus
 
 log = get_logger(__name__)
 
@@ -89,7 +90,7 @@ async def _evaluate(service_id: str) -> None:
         await db.commit()
 
 
-async def _open_incident(db, service_id: uuid.UUID, fraction: float, failing: int, total: int) -> None:
+async def _open_incident(db: AsyncSession, service_id: uuid.UUID, fraction: float, failing: int, total: int) -> None:
     reason = f"Quorum failure: {failing}/{total} checks failed ({fraction:.0%}) in last {settings.QUORUM_WINDOW_SECS}s"
     incident = Incident(service_id=service_id, trigger_reason=reason)
     db.add(incident)
@@ -98,25 +99,27 @@ async def _open_incident(db, service_id: uuid.UUID, fraction: float, failing: in
     log.warning("incident_opened", service_id=str(service_id), reason=reason)
 
     from app.api.v1.health import metrics
+
     metrics.incidents_opened += 1
 
     # AI summary + alerting are triggered asynchronously
     asyncio.create_task(_post_open_tasks(str(incident.id), str(service_id)))
 
 
-async def _resolve_incident(db, incident: Incident) -> None:
+async def _resolve_incident(db: AsyncSession, incident: Incident) -> None:
     incident.resolved_at = datetime.now(UTC)
     await db.flush()
 
     log.info("incident_resolved", incident_id=str(incident.id), service_id=str(incident.service_id))
 
     from app.api.v1.health import metrics
+
     metrics.incidents_resolved += 1
 
     asyncio.create_task(_post_resolve_tasks(str(incident.id), str(incident.service_id)))
 
 
-async def _update_status(db, service_id: uuid.UUID, is_down: bool) -> None:
+async def _update_status(db: AsyncSession, service_id: uuid.UUID, is_down: bool) -> None:
     result = await db.execute(select(ServiceStatus).where(ServiceStatus.service_id == service_id))
     status_row = result.scalar_one_or_none()
     new_status = "down" if is_down else "up"
@@ -136,8 +139,10 @@ async def _update_status(db, service_id: uuid.UUID, is_down: bool) -> None:
 
 async def _publish_status_event(service_id: str, new_status: str) -> None:
     try:
-        from app.api.deps import get_redis_pool
         import json
+
+        from app.api.deps import get_redis_pool
+
         redis = get_redis_pool()
         event = json.dumps({"type": "status_change", "service_id": service_id, "status": new_status})
         await redis.publish(settings.EVENTS_CHANNEL, event)

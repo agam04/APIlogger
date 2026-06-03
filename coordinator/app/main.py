@@ -1,10 +1,10 @@
 """FastAPI application factory with lifespan management."""
-import asyncio
-import json
-from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
-import redis.asyncio as aioredis
+import asyncio
+import contextlib
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -28,10 +28,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_redis()
 
     from app.api.deps import get_redis_pool
+
     redis = get_redis_pool()
     await ensure_consumer_groups(redis)
 
-    scheduler = await start_scheduler(redis)
+    await start_scheduler(redis)
     consumer_task = asyncio.create_task(run_result_consumer(redis), name="result-consumer")
 
     log.info("coordinator_ready")
@@ -39,10 +40,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     log.info("coordinator_stopping")
     consumer_task.cancel()
-    try:
+    with contextlib.suppress(TimeoutError, asyncio.CancelledError):
         await asyncio.wait_for(asyncio.shield(consumer_task), timeout=5)
-    except (asyncio.CancelledError, asyncio.TimeoutError):
-        pass
 
     await stop_scheduler()
     await close_redis()
@@ -84,7 +83,7 @@ def create_app() -> FastAPI:
             pubsub = redis.pubsub()
             await pubsub.subscribe(settings.EVENTS_CHANNEL)
             try:
-                yield "data: {\"type\": \"connected\"}\n\n"
+                yield 'data: {"type": "connected"}\n\n'
                 async for message in pubsub.listen():
                     if await request.is_disconnected():
                         break

@@ -1,4 +1,5 @@
 """Internal health + metrics endpoints."""
+
 import time
 from dataclasses import dataclass, field
 
@@ -9,6 +10,7 @@ from app.api.deps import DBSession, RedisConn
 from app.core.config import settings
 
 router = APIRouter(tags=["observability"])
+
 
 # Simple in-process counters (replace with prometheus_client in production)
 @dataclass
