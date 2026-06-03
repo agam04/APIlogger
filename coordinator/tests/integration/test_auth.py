@@ -44,7 +44,7 @@ async def test_wrong_password_rejected(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_protected_endpoint_requires_token(client: AsyncClient):
     resp = await client.get("/api/v1/services")
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 @pytest.mark.asyncio

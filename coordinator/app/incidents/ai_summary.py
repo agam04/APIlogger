@@ -1,17 +1,22 @@
 """
-AI-powered incident summary with multi-provider support.
+AI-powered incident summary with structured JSON output.
 
 Provider selection (automatic, in priority order):
   1. Anthropic Claude  — if ANTHROPIC_API_KEY is set
-  2. Groq (free tier) — if GROQ_API_KEY is set  (llama-3.3-70b-versatile by default)
+  2. Groq (free tier) — if GROQ_API_KEY is set  (llama-3.3-70b-versatile)
   3. Disabled         — if neither key is present
 
-Design: prompt-based RAG (no fine-tuning).
-  1. Retrieve last N check results for the failing service → recent metrics.
-  2. Retrieve up to 3 past resolved incidents for the same service → historical context.
-  3. Build a structured prompt and call the selected LLM.
-  4. Store the summary on the Incident row.
+Output schema stored in incidents.ai_structured (JSONB):
+  {
+    "root_cause": str,
+    "confidence": float (0-1),
+    "risk_level": "Critical" | "High" | "Medium" | "Low",
+    "recommended_actions": [str, ...],
+    "estimated_impact": str,
+    "similar_past_incident": str | null
+  }
 """
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -70,7 +75,6 @@ _provider: LLMProvider | None = None
 
 
 def _get_provider() -> LLMProvider | None:
-    """Lazily build the provider once; returns None if AI is unconfigured."""
     global _provider
     if _provider is not None:
         return _provider
@@ -88,7 +92,6 @@ def _get_provider() -> LLMProvider | None:
 
 
 def active_provider_name() -> str:
-    """Returns 'anthropic', 'groq', or 'none' — used by /metrics."""
     if settings.ANTHROPIC_API_KEY:
         return "anthropic"
     if settings.GROQ_API_KEY:
@@ -96,24 +99,28 @@ def active_provider_name() -> str:
     return "none"
 
 
+# ── Prompt ────────────────────────────────────────────────────────────────────
+
 SYSTEM_PROMPT = """\
-You are an expert SRE (Site Reliability Engineer) analyzing an API monitoring incident.
-Your job is to produce a concise, actionable incident report in plain English.
+You are an expert SRE analyzing an API monitoring incident. Based on the check results and context provided, produce a structured diagnosis.
 
-Format your response as:
-## Summary
-One sentence describing what happened.
+Respond with ONLY valid JSON matching this exact schema — no markdown, no explanation outside the JSON:
 
-## Likely Root Causes
-Bulleted list of 2-4 probable causes, ordered by likelihood.
+{
+  "root_cause": "One sentence identifying the most likely technical cause",
+  "confidence": 0.0 to 1.0,
+  "risk_level": "Critical" | "High" | "Medium" | "Low",
+  "recommended_actions": ["action 1", "action 2", "action 3"],
+  "estimated_impact": "One sentence on what users / downstream services are experiencing",
+  "similar_past_incident": "Date and brief description of a matching past incident, or null"
+}
 
-## Recommended Actions
-Bulleted list of immediate investigation steps.
-
-## Risk Assessment
-ONE of: Critical / High / Medium / Low — with a one-sentence justification.
-
-Be specific. Reference actual error messages, status codes, and response times from the data provided.
+Rules:
+- root_cause must reference specific error messages, status codes, or latency numbers from the data
+- confidence reflects how certain you are given the available evidence (low if data is sparse)
+- recommended_actions should be concrete steps an on-call engineer takes right now, ordered by priority
+- estimated_impact should describe real user-facing effects, not just "service is down"
+- similar_past_incident: null if no past incidents were provided or none match
 """
 
 
@@ -130,7 +137,6 @@ async def generate_and_store_summary(incident_id: str) -> None:
     iid = uuid.UUID(incident_id)
 
     async with AsyncSessionLocal() as db:
-        # Load incident + service
         inc_r = await db.execute(
             select(Incident)
             .options(selectinload(Incident.service))
@@ -143,7 +149,6 @@ async def generate_and_store_summary(incident_id: str) -> None:
 
         service: Service = incident.service
 
-        # Recent check results (last 30 min, up to 50 rows)
         window = datetime.now(UTC) - timedelta(minutes=30)
         recent_r = await db.execute(
             select(CheckResult)
@@ -153,7 +158,6 @@ async def generate_and_store_summary(incident_id: str) -> None:
         )
         recent_checks = recent_r.scalars().all()
 
-        # Past resolved incidents for RAG context (most recent 3)
         past_r = await db.execute(
             select(Incident)
             .where(
@@ -167,32 +171,62 @@ async def generate_and_store_summary(incident_id: str) -> None:
         )
         past_incidents = past_r.scalars().all()
 
-    # Build prompt
     prompt = _build_prompt(incident, service, recent_checks, past_incidents)
 
     try:
-        summary = await provider.complete(SYSTEM_PROMPT, prompt, max_tokens=1024)
+        raw = await provider.complete(SYSTEM_PROMPT, prompt, max_tokens=1024)
     except Exception as exc:
         log.error("ai_summary_error", incident_id=incident_id, provider=active_provider_name(), exc=str(exc))
         return
 
-    # Persist summary + context chunks
+    structured, summary_text = _parse_response(raw, incident_id)
+
     async with AsyncSessionLocal() as db:
         inc_r = await db.execute(select(Incident).where(Incident.id == iid))
         incident = inc_r.scalar_one_or_none()
         if incident is None:
             return
-        incident.ai_summary = summary
+        incident.ai_structured = structured
+        incident.ai_summary = summary_text
         incident.ai_generated_at = datetime.now(UTC)
 
-        # Store context chunk for future RAG retrieval
         chunk = _build_context_chunk(incident, recent_checks)
         db.add(IncidentContext(incident_id=iid, chunk_text=chunk))
         await db.commit()
 
     from app.api.v1.health import metrics
     metrics.ai_summaries_generated += 1
-    log.info("ai_summary_generated", incident_id=incident_id)
+    log.info("ai_summary_generated", incident_id=incident_id, risk_level=structured.get("risk_level"))
+
+
+def _parse_response(raw: str, incident_id: str) -> tuple[dict, str]:
+    """Parse JSON from LLM response. Returns (structured_dict, display_text)."""
+    raw = raw.strip()
+
+    # Strip markdown code fences if the model wrapped the JSON anyway
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        log.warning("ai_response_not_json", incident_id=incident_id, raw=raw[:200])
+        data = {"root_cause": raw, "confidence": 0.5, "risk_level": "Unknown",
+                "recommended_actions": [], "estimated_impact": "", "similar_past_incident": None}
+
+    # Build a readable text version for display / alerts
+    actions = "\n".join(f"  • {a}" for a in data.get("recommended_actions", []))
+    summary_text = (
+        f"[{data.get('risk_level', 'Unknown')} — {int(data.get('confidence', 0) * 100)}% confidence]\n\n"
+        f"Root Cause: {data.get('root_cause', '')}\n\n"
+        f"Impact: {data.get('estimated_impact', '')}\n\n"
+        f"Recommended Actions:\n{actions}"
+    )
+    if data.get("similar_past_incident"):
+        summary_text += f"\n\nSimilar Past Incident: {data['similar_past_incident']}"
+
+    return data, summary_text
 
 
 def _build_prompt(incident: Incident, service: Service, checks: list[CheckResult], past: list[Incident]) -> str:
@@ -222,9 +256,8 @@ def _build_prompt(incident: Incident, service: Service, checks: list[CheckResult
         for p in past:
             lines.append(f"- [{p.started_at.date()}] {p.trigger_reason}")
             if p.ai_summary:
-                # Include just the summary line to keep prompt concise
                 first_line = p.ai_summary.split("\n")[0]
-                lines.append(f"  Previous AI assessment: {first_line}")
+                lines.append(f"  Previous assessment: {first_line}")
 
     return "\n".join(lines)
 

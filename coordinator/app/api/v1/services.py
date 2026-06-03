@@ -233,6 +233,7 @@ async def update_service(
 async def delete_service(service_id: uuid.UUID, db: DBSession, user: CurrentUser) -> None:
     svc = await _get_service_or_404(db, service_id, user.id)
     await db.delete(svc)
+    await db.flush()
 
 
 # ---- Alert rules ----

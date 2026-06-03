@@ -149,6 +149,7 @@ class Incident(Base):
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     trigger_reason: Mapped[str] = mapped_column(String(512), nullable=False)
     ai_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ai_structured: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     ai_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     alert_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 

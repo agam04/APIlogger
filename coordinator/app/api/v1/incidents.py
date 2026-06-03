@@ -13,6 +13,15 @@ from app.db.models import Incident, Service
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 
 
+class AIStructured(BaseModel):
+    root_cause: str
+    confidence: float
+    risk_level: str
+    recommended_actions: list[str]
+    estimated_impact: str
+    similar_past_incident: str | None
+
+
 class IncidentResponse(BaseModel):
     id: str
     service_id: str
@@ -21,6 +30,7 @@ class IncidentResponse(BaseModel):
     resolved_at: str | None
     trigger_reason: str
     ai_summary: str | None
+    ai_structured: AIStructured | None
     ai_generated_at: str | None
     alert_sent: bool
 
@@ -35,6 +45,13 @@ class PaginatedIncidents(BaseModel):
 
 
 def _inc_to_response(inc: Incident) -> IncidentResponse:
+    structured = None
+    if inc.ai_structured:
+        try:
+            structured = AIStructured(**inc.ai_structured)
+        except Exception:
+            pass
+
     return IncidentResponse(
         id=str(inc.id),
         service_id=str(inc.service_id),
@@ -43,6 +60,7 @@ def _inc_to_response(inc: Incident) -> IncidentResponse:
         resolved_at=inc.resolved_at.isoformat() if inc.resolved_at else None,
         trigger_reason=inc.trigger_reason,
         ai_summary=inc.ai_summary,
+        ai_structured=structured,
         ai_generated_at=inc.ai_generated_at.isoformat() if inc.ai_generated_at else None,
         alert_sent=inc.alert_sent,
     )
