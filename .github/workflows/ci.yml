@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─── Coordinator ────────────────────────────────────────────────────────
+  coordinator-lint:
+    name: Coordinator — lint & type-check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: coordinator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy app --ignore-missing-imports
+
+  coordinator-unit:
+    name: Coordinator — unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: coordinator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/unit -v --cov=app --cov-report=xml
+      - uses: codecov/codecov-action@v4
+        with:
+          files: coordinator/coverage.xml
+
+  coordinator-integration:
+    name: Coordinator — integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: apilogger
+          POSTGRES_PASSWORD: apilogger
+          POSTGRES_DB: apilogger_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://apilogger:apilogger@localhost:5432/apilogger_test
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: test-secret-key
+      ENV: test
+      AI_ENABLED: "false"
+      QUORUM_WINDOW_SECS: "15"
+    defaults:
+      run:
+        working-directory: coordinator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: alembic upgrade head
+      - run: pytest tests/integration -v --timeout=60
+
+  # ─── Checker ────────────────────────────────────────────────────────────
+  checker-lint:
+    name: Checker — lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: checker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+
+  checker-unit:
+    name: Checker — unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: checker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: pytest tests -v --cov=app --cov-report=xml
+
+  # ─── Frontend ────────────────────────────────────────────────────────────
+  frontend-lint:
+    name: Frontend — type-check & lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package.json
+      - run: npm install
+      - run: npm run type-check
+      - run: npm run lint

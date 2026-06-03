@@ -1,0 +1,63 @@
+# ── Secrets ──────────────────────────────────────────────────────────────────
+.env
+*.env
+.env.local
+.env.*.local
+
+# ── Claude / AI tools ────────────────────────────────────────────────────────
+.claude/
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.Python
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+.python-version
+
+# ── Pytest / coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.lcov
+
+# ── Mypy / Ruff ──────────────────────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+
+# ── Node / Frontend ──────────────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# ── Docker volumes (if ever bind-mounted locally) ────────────────────────────
+pg_data/
+redis_data/
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDEs ─────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Alembic auto-generated (keep versions/ but not __pycache__ inside) ───────
+coordinator/app/db/migrations/__pycache__/
+coordinator/app/db/migrations/versions/__pycache__/
+
+# ── k6 output ────────────────────────────────────────────────────────────────
+load-tests/results/

@@ -1,0 +1,144 @@
+version: "3.9"
+
+x-checker-base: &checker-base
+  build:
+    context: ../checker
+    dockerfile: Dockerfile
+  depends_on:
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  networks:
+    - apilogger
+
+services:
+  # ─── Infrastructure ───────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: apilogger
+      POSTGRES_PASSWORD: apilogger
+      POSTGRES_DB: apilogger
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apilogger"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - apilogger
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - apilogger
+
+  # ─── Coordinator ──────────────────────────────────────────────────────────
+  coordinator:
+    build:
+      context: ../coordinator
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://apilogger:apilogger@postgres:5432/apilogger
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: "dev-secret-change-me-in-production"
+      ENV: development
+      AI_ENABLED: "true"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      QUORUM_FRACTION: "0.51"
+      QUORUM_WINDOW_SECS: "120"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../coordinator:/app  # live code mount for hot-reload in dev
+    command: >
+      sh -c "
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - apilogger
+
+  # ─── Checker nodes (3 simulating geographic distribution) ─────────────────
+  checker-us-east:
+    <<: *checker-base
+    environment:
+      NODE_ID: checker-us-east-1
+      REDIS_URL: redis://redis:6379/0
+      TASKS_STREAM: apilogger:tasks
+      RESULTS_STREAM: apilogger:results
+      TASKS_GROUP: checkers
+      CONCURRENCY: "20"
+      ENV: development
+
+  checker-eu-west:
+    <<: *checker-base
+    environment:
+      NODE_ID: checker-eu-west-1
+      REDIS_URL: redis://redis:6379/0
+      TASKS_STREAM: apilogger:tasks
+      RESULTS_STREAM: apilogger:results
+      TASKS_GROUP: checkers
+      CONCURRENCY: "20"
+      ENV: development
+
+  checker-ap-south:
+    <<: *checker-base
+    environment:
+      NODE_ID: checker-ap-south-1
+      REDIS_URL: redis://redis:6379/0
+      TASKS_STREAM: apilogger:tasks
+      RESULTS_STREAM: apilogger:results
+      TASKS_GROUP: checkers
+      CONCURRENCY: "20"
+      ENV: development
+
+  # ─── Frontend ─────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - apilogger
+
+volumes:
+  pg_data:
+  redis_data:
+
+networks:
+  apilogger:
+    driver: bridge

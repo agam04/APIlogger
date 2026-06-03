@@ -1,0 +1,39 @@
+# Overlay for integration tests — no hot-reload, test DB, fast intervals
+version: "3.9"
+
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: apilogger_test
+
+  coordinator:
+    environment:
+      DATABASE_URL: postgresql+asyncpg://apilogger:apilogger@postgres:5432/apilogger_test
+      ENV: test
+      AI_ENABLED: "false"
+      QUORUM_WINDOW_SECS: "15"
+      QUORUM_FRACTION: "0.51"
+    command: >
+      sh -c "
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
+      "
+    volumes: []  # no hot-reload mount in tests
+
+  checker-us-east:
+    environment:
+      NODE_ID: checker-us-east-1
+      REDIS_URL: redis://redis:6379/0
+      CONCURRENCY: "5"
+
+  checker-eu-west:
+    environment:
+      NODE_ID: checker-eu-west-1
+      REDIS_URL: redis://redis:6379/0
+      CONCURRENCY: "5"
+
+  checker-ap-south:
+    environment:
+      NODE_ID: checker-ap-south-1
+      REDIS_URL: redis://redis:6379/0
+      CONCURRENCY: "5"
