@@ -80,17 +80,29 @@ async def _evaluate(service_id: str) -> None:
         )
         open_incident = open_inc_r.scalar_one_or_none()
 
+        new_incident_id = None
+        resolved_incident_id = None
+
         if is_quorum_down and open_incident is None:
-            await _open_incident(db, sid, failure_fraction, failing, total)
+            new_incident_id = await _open_incident(db, sid, failure_fraction, failing, total)
         elif not is_quorum_down and open_incident is not None:
+            resolved_incident_id = str(open_incident.id)
             await _resolve_incident(db, open_incident)
 
         # Always update service_status
         await _update_status(db, sid, is_quorum_down)
         await db.commit()
 
+        # Fire background tasks AFTER commit so the incident exists in DB
+        if new_incident_id:
+            asyncio.create_task(_post_open_tasks(new_incident_id, str(sid)))
+        if resolved_incident_id:
+            asyncio.create_task(_post_resolve_tasks(resolved_incident_id, str(sid)))
 
-async def _open_incident(db: AsyncSession, service_id: uuid.UUID, fraction: float, failing: int, total: int) -> None:
+
+async def _open_incident(
+    db: AsyncSession, service_id: uuid.UUID, fraction: float, failing: int, total: int
+) -> str:
     reason = f"Quorum failure: {failing}/{total} checks failed ({fraction:.0%}) in last {settings.QUORUM_WINDOW_SECS}s"
     incident = Incident(service_id=service_id, trigger_reason=reason)
     db.add(incident)
@@ -102,8 +114,7 @@ async def _open_incident(db: AsyncSession, service_id: uuid.UUID, fraction: floa
 
     metrics.incidents_opened += 1
 
-    # AI summary + alerting are triggered asynchronously
-    asyncio.create_task(_post_open_tasks(str(incident.id), str(service_id)))
+    return str(incident.id)
 
 
 async def _resolve_incident(db: AsyncSession, incident: Incident) -> None:
@@ -115,8 +126,6 @@ async def _resolve_incident(db: AsyncSession, incident: Incident) -> None:
     from app.api.v1.health import metrics
 
     metrics.incidents_resolved += 1
-
-    asyncio.create_task(_post_resolve_tasks(str(incident.id), str(incident.service_id)))
 
 
 async def _update_status(db: AsyncSession, service_id: uuid.UUID, is_down: bool) -> None:
