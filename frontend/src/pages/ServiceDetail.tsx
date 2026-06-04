@@ -1,13 +1,15 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { subHours } from "date-fns";
-import { api } from "../api/client";
+import { api, AlertRuleCreate } from "../api/client";
 import { LatencyChart } from "../components/LatencyChart";
 import { IncidentTimeline } from "../components/IncidentTimeline";
 
 export function ServiceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const qc = useQueryClient();
 
   const { data: service } = useQuery({
     queryKey: ["service", id],
@@ -34,6 +36,22 @@ export function ServiceDetail() {
     queryKey: ["incidents", id],
     queryFn: () => api.incidents.list(false, 1),
     enabled: !!id,
+  });
+
+  const { data: alertRules = [] } = useQuery({
+    queryKey: ["alert-rules", id],
+    queryFn: () => api.alertRules.list(id!),
+    enabled: !!id,
+  });
+
+  const deleteService = useMutation({
+    mutationFn: () => api.services.delete(id!),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["services"] }); navigate("/"); },
+  });
+
+  const deleteRule = useMutation({
+    mutationFn: (ruleId: string) => api.alertRules.delete(id!, ruleId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["alert-rules", id] }),
   });
 
   const checks = checksData?.items ?? [];
@@ -71,9 +89,9 @@ export function ServiceDetail() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px", marginBottom: "28px" }}>
               {[
                 { label: "Uptime", value: stats.uptime_pct != null ? `${stats.uptime_pct}%` : "—" },
-                { label: "p50 latency", value: stats.p50_ms != null ? `${stats.p50_ms}ms` : "—" },
-                { label: "p95 latency", value: stats.p95_ms != null ? `${stats.p95_ms}ms` : "—" },
-                { label: "p99 latency", value: stats.p99_ms != null ? `${stats.p99_ms}ms` : "—" },
+                { label: "p50 latency", value: stats.p50_ms != null ? `${Math.round(stats.p50_ms)}ms` : "—" },
+                { label: "p95 latency", value: stats.p95_ms != null ? `${Math.round(stats.p95_ms)}ms` : "—" },
+                { label: "p99 latency", value: stats.p99_ms != null ? `${Math.round(stats.p99_ms)}ms` : "—" },
                 { label: "Total checks", value: stats.total_checks.toLocaleString() },
               ].map(({ label, value }) => (
                 <div key={label} style={{
@@ -103,8 +121,111 @@ export function ServiceDetail() {
           <Section title="Recent checks">
             <ChecksTable checks={checks.slice(0, 50)} />
           </Section>
+
+          {/* Alert rules */}
+          <Section title="Alert Rules">
+            <AlertRulesPanel
+              serviceId={id!}
+              rules={alertRules}
+              onDelete={(ruleId) => deleteRule.mutate(ruleId)}
+              onAdded={() => qc.invalidateQueries({ queryKey: ["alert-rules", id] })}
+            />
+          </Section>
+
+          {/* Danger zone */}
+          <div style={{ marginTop: "40px", paddingTop: "24px", borderTop: "1px solid #1e293b" }}>
+            <button
+              onClick={() => { if (confirm("Delete this service and all its data?")) deleteService.mutate(); }}
+              style={{
+                padding: "8px 18px", borderRadius: "8px", border: "1px solid #ef4444",
+                background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: "13px", fontWeight: 600,
+              }}
+            >
+              Delete Service
+            </button>
+          </div>
         </>
       )}
+    </div>
+  );
+}
+
+function AlertRulesPanel({
+  serviceId, rules, onDelete, onAdded,
+}: {
+  serviceId: string;
+  rules: { id: string; channel: string; destination: string }[];
+  onDelete: (id: string) => void;
+  onAdded: () => void;
+}) {
+  const [channel, setChannel] = useState<"email" | "slack">("email");
+  const [destination, setDestination] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleAdd = async () => {
+    if (!destination.trim()) return;
+    setSaving(true);
+    const body: AlertRuleCreate = { channel, destination: destination.trim() };
+    await api.alertRules.create(serviceId, body);
+    setDestination("");
+    setSaving(false);
+    onAdded();
+  };
+
+  return (
+    <div>
+      {rules.length === 0 && (
+        <div style={{ color: "#64748b", fontSize: "13px", marginBottom: "16px" }}>No alert rules yet.</div>
+      )}
+      {rules.map((r) => (
+        <div key={r.id} style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          padding: "10px 14px", background: "#1e293b", borderRadius: "8px",
+          marginBottom: "8px", fontSize: "13px",
+        }}>
+          <div>
+            <span style={{ color: "#60a5fa", fontWeight: 600, marginRight: "10px", textTransform: "uppercase", fontSize: "11px" }}>{r.channel}</span>
+            <span style={{ color: "#cbd5e1" }}>{r.destination}</span>
+          </div>
+          <button
+            onClick={() => onDelete(r.id)}
+            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "18px", lineHeight: 1 }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+
+      <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
+        <select
+          value={channel}
+          onChange={(e) => setChannel(e.target.value as "email" | "slack")}
+          style={{ padding: "8px 10px", borderRadius: "6px", border: "1px solid #334155", background: "#1e293b", color: "#e2e8f0", fontSize: "13px" }}
+        >
+          <option value="email">Email</option>
+          <option value="slack">Slack</option>
+        </select>
+        <input
+          value={destination}
+          onChange={(e) => setDestination(e.target.value)}
+          placeholder={channel === "email" ? "you@example.com" : "https://hooks.slack.com/..."}
+          style={{
+            flex: 1, padding: "8px 12px", borderRadius: "6px", border: "1px solid #334155",
+            background: "#1e293b", color: "#e2e8f0", fontSize: "13px",
+          }}
+        />
+        <button
+          onClick={handleAdd}
+          disabled={saving || !destination.trim()}
+          style={{
+            padding: "8px 16px", borderRadius: "6px", border: "none",
+            background: saving ? "#334155" : "#3b82f6", color: "white",
+            cursor: saving ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: 600,
+          }}
+        >
+          {saving ? "Adding…" : "Add"}
+        </button>
+      </div>
     </div>
   );
 }
